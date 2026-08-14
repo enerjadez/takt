@@ -168,6 +168,13 @@ export class Engine {
         return this.audioCtx.decodeAudioData(raw.slice(0));
       });
     }
+    if (item.streamUrl) {
+      return this.getAudioBuffer("u:" + item.streamUrl, async () => {
+        const r = await fetch(item.streamUrl);
+        const raw = await r.arrayBuffer();
+        return this.audioCtx.decodeAudioData(raw.slice(0));
+      });
+    }
     return null;
   }
 

@@ -4,7 +4,24 @@ Local video editor for your Android tablet. Cut clips to original music, overlay
 
 Same idea as BLAST: this PC runs a tiny server, the tablet opens a link on your Wi-Fi.
 
-## Run it
+## On the tablet (no PC needed)
+
+Send `TAKT.html` to the tablet (BLAST it, USB, Drive — whatever). Open it **in Chrome**. That is the whole app.
+
+- Clips and your own songs come from the tablet gallery.
+- **Songs** tab needs internet (real recorded tracks from Audius).
+- **Originals** and imported files work offline.
+- Chrome → Add to Home screen if it offers it.
+
+Rebuild the single file after code changes:
+
+```bat
+python C:\Users\jaden\takt\build_standalone.py
+```
+
+Writes `C:\Users\jaden\takt\TAKT.html` and a copy on the Desktop.
+
+## Run it from the PC (LAN)
 
 Double-click the desktop **TAKT** shortcut, or:
 

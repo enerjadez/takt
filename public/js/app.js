@@ -33,7 +33,7 @@ async function boot() {
       ui.removeSelected();
     }
   });
-  if ("serviceWorker" in navigator) {
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http") && location.pathname !== "/TAKT.html") {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }
   await ui.showHome();
@@ -42,5 +42,5 @@ async function boot() {
 boot().catch((err) => {
   console.error(err);
   document.getElementById("app").innerHTML =
-    `<div class="home"><h1>TAKT</h1><p>Could not start. Open this from the TAKT window on your PC, not as a raw file.</p></div>`;
+    `<div class="home"><h1>TAKT</h1><p>Could not start. Open this file in Chrome.</p><pre style="color:#8a8a99;white-space:pre-wrap">${String(err)}</pre></div>`;
 });

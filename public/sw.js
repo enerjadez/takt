@@ -1,4 +1,4 @@
-const CACHE = "takt-v1";
+const CACHE = "takt-v2";
 const SHELL = [
   "/",
   "/index.html",
@@ -8,6 +8,7 @@ const SHELL = [
   "/js/db.js",
   "/js/store.js",
   "/js/library.js",
+  "/js/audius.js",
   "/js/engine.js",
   "/js/ui.js",
   "/icons/icon-192.jpg",

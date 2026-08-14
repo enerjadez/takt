@@ -9,7 +9,8 @@ import {
   projectDuration,
 } from "./store.js";
 import { FILTER_IDS, downloadBlob, importMediaFile } from "./engine.js";
-import { GENRES, SFX, TRACKS, getTrack, trackDuration } from "./library.js";
+import { GENRES, SFX, TRACKS, getTrack, playTrackLive, renderSfx, trackDuration } from "./library.js";
+import { SONG_GENRES, fetchSongBlob, searchSongs } from "./audius.js";
 
 const TEXT_STYLES = ["classic", "outline", "box", "neon", "karaoke", "poster", "typewriter"];
 const TRANS = ["none", "fade", "flash", "dissolve"];
@@ -48,8 +49,11 @@ export class UI {
     this.db = db;
     this.engine = engine;
     this.sheet = null;
+    this.catalog = "songs";
     this.genre = "For you";
     this.soundQ = "";
+    this.audiusList = [];
+    this.audiusErr = "";
     this.previewId = null;
     this.previewStop = null;
     this.recents = [];
@@ -68,7 +72,7 @@ export class UI {
       <div class="home">
         <div class="home-top">
           <div class="brand">
-            <img src="/icons/icon-512.jpg" alt="" />
+            <img src="${window.TAKT_ICON || "icons/icon-512.jpg"}" alt="" />
             <div>
               <h1>TAKT</h1>
               <p>Cut to the music. Local. Yours.</p>
@@ -452,12 +456,12 @@ export class UI {
     input.click();
   }
 
-  addMusic({ trackId, mediaId, sfxId, title, duration }) {
+  addMusic({ trackId, mediaId, sfxId, streamUrl, title, duration }) {
     this.store.snapshot();
     const start = 0;
     let dur = duration;
     if (trackId) dur = Math.max(trackDuration(getTrack(trackId)), projectDuration(this.store.project));
-    const item = newAudioItem("music", start, dur || 8, { trackId, mediaId, sfxId, title: title || "Sound" });
+    const item = newAudioItem("music", start, dur || 8, { trackId, mediaId, sfxId, streamUrl, title: title || "Sound" });
     if (!sfxId) this.store.project.music = this.store.project.music.filter((m) => m.sfxId);
     this.store.project.music.push(item);
     if (trackId) this.engine.bufferForMusic(item).catch(() => {});
@@ -597,28 +601,41 @@ export class UI {
   }
 
   renderSounds(body) {
-    const q = this.soundQ.toLowerCase();
-    const list = TRACKS.filter((t) => {
-      if (this.genre === "Yours") return false;
-      if (this.genre !== "For you" && t.genre !== this.genre) return false;
-      if (!q) return true;
-      return (t.title + t.mood + t.genre).toLowerCase().includes(q);
-    });
+    const cats = [
+      ["songs", "Songs"],
+      ["originals", "Originals"],
+      ["yours", "Yours"],
+    ];
+    const chips = this.catalog === "songs" ? SONG_GENRES : GENRES.filter((g) => g !== "Yours");
     body.innerHTML = `
-      <input class="search" id="sq" placeholder="Search original sounds" value="${this.esc(this.soundQ)}" />
+      <div class="row-btns" id="cats"></div>
+      <input class="search" id="sq" placeholder="${this.catalog === "songs" ? "Search real songs" : "Search originals"}" value="${this.esc(this.soundQ)}" />
       <div class="chips" id="chips"></div>
       <div class="row-btns">
         <button class="pill" id="imp-audio">Import from tablet</button>
       </div>
       <div class="sound-grid" id="sg"></div>
-      <div class="section-h" style="margin-top:18px"><h3>SFX</h3></div>
-      <div class="sound-grid" id="sfx"></div>`;
+      ${this.catalog === "originals" ? `<div class="section-h" style="margin-top:18px"><h3>SFX</h3></div><div class="sound-grid" id="sfx"></div>` : ""}`;
+    const catRow = $("#cats", body);
+    for (const [id, label] of cats) {
+      const b = document.createElement("button");
+      b.className = "pill" + (this.catalog === id ? " on" : "");
+      b.textContent = label;
+      b.onclick = () => {
+        this.catalog = id;
+        this.genre = "For you";
+        this.soundQ = "";
+        this.renderSheet("sounds");
+      };
+      catRow.appendChild(b);
+    }
     $("#sq", body).oninput = (e) => {
       this.soundQ = e.target.value;
-      this.renderSheet("sounds");
+      clearTimeout(this._sq);
+      this._sq = setTimeout(() => this.renderSheet("sounds"), this.catalog === "songs" ? 450 : 80);
     };
-    const chips = $("#chips", body);
-    for (const g of GENRES) {
+    const chipRow = $("#chips", body);
+    for (const g of chips) {
       const b = document.createElement("button");
       b.className = "chip" + (this.genre === g ? " on" : "");
       b.textContent = g;
@@ -626,43 +643,105 @@ export class UI {
         this.genre = g;
         this.renderSheet("sounds");
       };
-      chips.appendChild(b);
+      chipRow.appendChild(b);
     }
     $("#imp-audio", body).onclick = () => this.pickAudio();
     const sg = $("#sg", body);
-    if (this.genre === "Yours") {
-      if (!this.userSounds.length) sg.innerHTML = `<div class="empty-recents">Import songs from this tablet. They never leave the device.</div>`;
-      for (const s of this.userSounds) {
-        sg.appendChild(this.soundRow({ id: s.id, title: s.name, artist: "Your library", bpm: "", color: "#3dffc4", yours: s }));
+    if (this.catalog === "yours") {
+      if (!this.userSounds.length) {
+        sg.innerHTML = `<div class="empty-recents">Import mp3 / m4a from this tablet. Your files stay here.</div>`;
       }
-    } else {
+      for (const s of this.userSounds) {
+        sg.appendChild(this.soundRow({ id: s.id, title: s.name, artist: "Your library", color: "#3dffc4", yours: s }));
+      }
+    } else if (this.catalog === "originals") {
+      const q = this.soundQ.toLowerCase();
+      const list = TRACKS.filter((t) => {
+        if (this.genre !== "For you" && t.genre !== this.genre) return false;
+        if (!q) return true;
+        return (t.title + t.mood + t.genre).toLowerCase().includes(q);
+      });
       for (const t of list) sg.appendChild(this.soundRow(t));
+      const sfx = $("#sfx", body);
+      if (sfx) for (const s of SFX) sfx.appendChild(this.soundRow({ ...s, artist: "SFX", sfx: true }));
+    } else {
+      sg.innerHTML = `<div class="empty-recents">Loading songs…</div>`;
+      this.fillAudius(sg);
     }
-    const sfx = $("#sfx", body);
-    for (const s of SFX) {
-      const row = this.soundRow({ ...s, artist: "SFX", bpm: "", sfx: true });
-      sfx.appendChild(row);
+  }
+
+  async fillAudius(sg) {
+    try {
+      this.audiusList = await searchSongs(this.soundQ, this.genre);
+      this.audiusErr = "";
+    } catch (e) {
+      this.audiusList = [];
+      this.audiusErr = "Need internet to browse songs.";
     }
+    if (!sg.isConnected) return;
+    sg.innerHTML = "";
+    if (this.audiusErr) {
+      sg.innerHTML = `<div class="empty-recents">${this.audiusErr} Originals still work offline.</div>`;
+      return;
+    }
+    if (!this.audiusList.length) {
+      sg.innerHTML = `<div class="empty-recents">Nothing for that search.</div>`;
+      return;
+    }
+    for (const t of this.audiusList) sg.appendChild(this.soundRow(t));
   }
 
   soundRow(t) {
     const el = document.createElement("div");
     el.className = "sound";
+    const cover = t.art
+      ? `<div class="cover" style="background-image:url('${this.esc(t.art)}');background-size:cover;background-position:center"></div>`
+      : `<div class="cover" style="background:${t.color || "#3dffc4"}">${this.esc((t.title || "?").slice(0, 1))}</div>`;
+    const meta = t.audiusId
+      ? `${this.esc(t.artist)}${t.duration ? " · " + Math.round(t.duration) + "s" : ""}`
+      : `${this.esc(t.artist || "")}${t.bpm ? " · " + t.bpm + " BPM · " + this.esc(t.mood || "") : ""}`;
     el.innerHTML = `
-      <div class="cover" style="background:${t.color || "#3dffc4"}">${(t.title || "?").slice(0, 1)}</div>
-      <div><b>${this.esc(t.title)}</b><span>${this.esc(t.artist || "")}${t.bpm ? " · " + t.bpm + " BPM · " + t.mood : ""}</span></div>
+      ${cover}
+      <div><b>${this.esc(t.title)}</b><span>${meta}</span></div>
       <div style="display:flex;gap:6px;align-items:center">
         <button class="preview-btn">▶</button>
         <button class="use-btn">Use</button>
       </div>`;
     $(".preview-btn", el).onclick = () => this.previewSound(t, $(".preview-btn", el));
-    $(".use-btn", el).onclick = () => {
-      if (t.sfx) this.addMusic({ sfxId: t.id, title: t.title, duration: 1 });
-      else if (t.yours) this.addMusic({ mediaId: t.yours.id, title: t.yours.name, duration: t.yours.duration });
-      else this.addMusic({ trackId: t.id, title: t.title });
-      this.closeSheet();
-    };
+    $(".use-btn", el).onclick = () => this.useSound(t);
     return el;
+  }
+
+  async useSound(t) {
+    if (t.sfx) {
+      this.addMusic({ sfxId: t.id, title: t.title, duration: 1 });
+      this.closeSheet();
+      return;
+    }
+    if (t.yours) {
+      this.addMusic({ mediaId: t.yours.id, title: t.yours.name, duration: t.yours.duration });
+      this.closeSheet();
+      return;
+    }
+    if (t.audiusId) {
+      toast("Saving song to this tablet…");
+      try {
+        const blob = await fetchSongBlob(t.audiusId);
+        const file = new File([blob], (t.title || "song") + ".mp3", { type: blob.type || "audio/mpeg" });
+        const rec = await importMediaFile(this.db, file);
+        this.userSounds.push(rec);
+        this.addMusic({ mediaId: rec.id, title: t.title, duration: rec.duration || t.duration });
+        this.closeSheet();
+        return;
+      } catch (e) {
+        this.addMusic({ streamUrl: t.streamUrl, title: t.title, duration: t.duration });
+        this.closeSheet();
+        toast("Streaming it — export needs the download next time");
+        return;
+      }
+    }
+    this.addMusic({ trackId: t.id, title: t.title });
+    this.closeSheet();
   }
 
   async previewSound(t, btn) {
@@ -676,7 +755,6 @@ export class UI {
     this.previewId = t.id;
     btn.textContent = "■";
     if (t.sfx) {
-      const { renderSfx } = await import("./library.js");
       const buf = await renderSfx(t.id);
       const src = this.engine.audioCtx.createBufferSource();
       src.buffer = buf;
@@ -691,20 +769,20 @@ export class UI {
       src.onended = () => this.previewStop && this.previewStop();
       return;
     }
-    if (t.yours) {
-      const rec = t.yours;
-      const url = URL.createObjectURL(rec.blob);
+    if (t.yours || t.streamUrl || t.audiusId) {
+      let url = t.streamUrl;
+      if (t.yours) url = URL.createObjectURL(t.yours.blob);
       const a = new Audio(url);
-      a.play();
+      a.crossOrigin = "anonymous";
+      a.play().catch(() => toast("Could not preview"));
       this.previewStop = () => {
         a.pause();
-        URL.revokeObjectURL(url);
+        if (t.yours) URL.revokeObjectURL(url);
         btn.textContent = "▶";
       };
       a.onended = () => this.previewStop && this.previewStop();
       return;
     }
-    const { playTrackLive } = await import("./library.js");
     const live = playTrackLive(this.engine.audioCtx, this.engine.master, t, 0);
     const stopAt = setTimeout(() => this.previewStop && this.previewStop(), 8000);
     this.previewStop = () => {
