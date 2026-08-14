@@ -454,9 +454,9 @@ export class UI {
 
   addMusic({ trackId, mediaId, sfxId, title, duration }) {
     this.store.snapshot();
-    const start = this.store.time;
+    const start = 0;
     let dur = duration;
-    if (trackId) dur = trackDuration(getTrack(trackId));
+    if (trackId) dur = Math.max(trackDuration(getTrack(trackId)), projectDuration(this.store.project));
     const item = newAudioItem("music", start, dur || 8, { trackId, mediaId, sfxId, title: title || "Sound" });
     if (!sfxId) this.store.project.music = this.store.project.music.filter((m) => m.sfxId);
     this.store.project.music.push(item);
@@ -978,6 +978,7 @@ export class UI {
       };
     });
     $("#go-ex", body).onclick = async () => {
+      if (!this.store.project.clips.length) return toast("Add a clip first");
       const btn = $("#go-ex", body);
       const bar = $("#ex-prog i", body);
       btn.disabled = true;
