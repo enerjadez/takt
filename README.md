@@ -6,7 +6,9 @@ Same idea as BLAST: this PC runs a tiny server, the tablet opens a link on your 
 
 ## On the tablet (no PC needed)
 
-Send `TAKT.html` to the tablet (BLAST it, USB, Drive — whatever). Open it **in Chrome**. That is the whole app.
+Send `TAKT.html` to the tablet (BLAST it, USB, Drive — whatever). Then **Open with Chrome** — not the Files preview, not Samsung Internet if you can help it.
+
+If the page says “Opening…” forever, Chrome is not the app that opened it. Long-press the file → Open with → Chrome.
 
 - Clips and your own songs come from the tablet gallery.
 - **Songs** tab needs internet (real recorded tracks from Audius).
